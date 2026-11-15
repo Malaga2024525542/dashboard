@@ -13,6 +13,7 @@ import datetime as dt
 import io
 import json
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,10 +23,17 @@ UA = {"User-Agent": "Mozilla/5.0 (compatible; indice-acumulacion/1.0)"}
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("index.html")
 
 
-def get(url, **kw):
-    r = requests.get(url, headers=UA, timeout=30, **kw)
-    r.raise_for_status()
-    return r
+def get(url, intentos=3, **kw):
+    """GET con 3 intentos y 60 s de espera máxima (FRED a veces responde lento)."""
+    for i in range(intentos):
+        try:
+            r = requests.get(url, headers=UA, timeout=60, **kw)
+            r.raise_for_status()
+            return r
+        except requests.RequestException:
+            if i == intentos - 1:
+                raise
+            time.sleep(5 * (i + 1))
 
 
 def nota(x):
@@ -89,7 +97,9 @@ def dxy():
 
 
 def fred(serie):
-    txt = get("https://fred.stlouisfed.org/graph/fredgraph.csv", params={"id": serie}).text
+    desde = (dt.date.today() - dt.timedelta(days=800)).isoformat()   # solo ~2 años: mucho más rápido
+    txt = get("https://fred.stlouisfed.org/graph/fredgraph.csv",
+              params={"id": serie, "cosd": desde}).text
     filas = list(csv.reader(io.StringIO(txt)))[1:]
     return {f[0]: float(f[1]) for f in filas if len(f) > 1 and f[1] not in ("", ".")}
 
